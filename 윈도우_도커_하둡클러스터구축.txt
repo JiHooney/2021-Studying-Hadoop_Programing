@@ -1,0 +1,395 @@
+윈도우에서 도커를 이용해서 하둡클러스터 구성하기
+
+# 1. 윈도우10에 WSL2(Window Subsystem for Linux2)설치
+윈도우 버전 home의 경우 20H1이상(PC 정보에서 확인가능)
+
+* DISM으로 WSL 관련 기능 활성화
+```
+DISM(배포 이미지 서비스 및 관리) 명령어로 Microsoft-Windows-Subsystem-Linux 기능을 활성화
+
+$ dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+
+
+다음으로 dism 명령어로 VirtualMachinePlatform 기능을 활성화합니다.
+$ dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+```
+
+* WSL2 Linux커널 업데이트
+```
+설치후에 우분투 리눅스를 설치한다.
+$ wsl --install
+```
+
+* 마이크로소프트 스토어에서 리눅스 설치
+```
+맨앞에 뜨는 ubuntu 다운받고 설치하기
+
+제어판에서 WSL 활성화 시켜준다.
+제어판 -> 프로그램및기능 -> windows 기능켜기/끄기 -> [Linux용 Windows 하위시스템]체크 -> 확인
+
+시작에서 "개발자 설정" -> 켜기
+
+재시작해서 윈도우 업데이트한다.
+
+시작메뉴에서 ubuntu 실행하기
+"Installing, this may take a few minutes...
+Press any key to continue..." 
+뜨고 조금 기다리면 아이디, 비번 입력받는 창이 뜬다. (master/master)
+
+다시 윈도우 터미널을 실행한다.
+윈도우에 설치된 리눅스 버전을 확인해본다.
+$ wsl -l -v
+
+여기서 ubuntu 가 Running중인데 버전이 1이면 아래와 명령어를 실행한다.
+
+WSL2 Linux 커널 업데이트를 진행한다.
+먼저 아래 wsl_update_x64.msi를 다운받는다.
+https://wslstorestorage.blob.core.windows.net/wslblob/wsl_update_x64.msi
+
+윈도우 터미널을 열고, 다음 명령어를 실행해, 기본적으로 사용할 WSL 버전을 2로 변경해줍니다.
+$ wsl --set-default-version 2
+"변환이 완료되었습니다."라는 출력 결과를 꼭 확인한다.
+$ wsl -l -v
+이때 Ubuntu 상태가 Stopped이면 시작에서 Ubuntu프로그램을 다시 실행한다.
+
+마이크로소프트 스토어에서 "window terminal"을 설치하고 관리자 권한으로 실행한다.
+power shell 탭에서 다음 두 명령어를 실행한다.
+
+$ dism.exe /online /enable-feature /featurename:Microsoft-Windows-Subsystem-Linux /all /norestart
+$ dism.exe /online /enable-feature /featurename:VirtualMachinePlatform /all /norestart
+
+그리고 윈도우를 재부팅한다.
+
+아래 링크에서 도커 설치파일 다운로드받고 실행한다.
+https://www.docker.com/products/docker-desktop
+
+Configuration 창에서 두 개다 체크하고 Ok누른다.
+
+다 다운되면 close and log out한다.
+
+도커를 실행한다.
+시스템에 WSL2가 활성화되어있다면 docker는 기본적으로 WSL2를 백엔드로 도커엔진을 
+사용한다.
+
+이제 도커엔진에서 설정-> General -> Use the WSL2 based engine에 체크되어있는지 확인
+
+Resources -> WSL Integration -> Enable Integration with my default WSL distro ->
+Ubuntu 켜기
+
+이제 윈도우터미널 프로그램에서 아래 명령어로 도커 전용 머신 실행중인 것 확인한다.
+$ wsl -l -v
+
+실행중인 컨테이너를 확인해본다.
+$ docker ps
+
+아직 아무것도 없다.
+```
+
+* 도커 테스트하기
+```
+docker run hello-world
+docker image ls
+docker rmi hello-world:latest
+```
+
+====================# 도커를 이용해서 하둡 클러스터 만들기====================
+---참고 도커명령어---
+#현재 도커 이미지 확인
+$ docker images
+
+#이미지 삭제
+$ docker rmi [imageID]
+
+#이미지 삭제하면서 컨테이너도 같이 삭제
+$ docker rmi -f [imageID]
+
+#실행중인 컨테이너 중지하기
+$ docker stop [ContainerID]
+
+#모든 컨테이너 중지하기
+$ docker stop $(docker ps -a -q)
+
+#컨테이너 전체 목록확인
+$ docker ps -a
+
+#컨테이너 삭제
+$ docker rm [ContainerID]
+
+------
+
+
+* 하둡 도커 이미지 만들기
+``
+하둡을 띄울 도커 이미지를 만든다.
+우선 CentOs 이미지를 이용해 컨테이너를 구동시킨다.
+$ docker run -it --name hadoop-base ubuntu:18.04
+나중에 ctrl + p + q 로 컨테이너 정지하지 않고 쉘 빠져나올 수 있다.
+
+다양한 라이브러리 및 jdk를 설치한다.
+$ apt-get update  
+$ apt-get install -y net-tools vim iputils-ping wget
+$ apt-get install -y openssh-server openssh-client
+$ apt-get install -y openjdk-8-jdk 
+$ java -version 
+$ javac -version 
+
+* Start the ssh server and check ssh server running
+$ /etc/init.d/ssh start
+또는
+$ service ssh restart
+$ netstat -plant | grep 22
+
+
+컨테이너들끼리 로그인절차없이 ssh 접속을 할 수 있도록 키 파일을 생성한다.
+$ ssh-keygen -t rsa -P '' -f ~/.ssh/id_dsa
+
+Use the 'cat' command to store the public key as authorized_keys in the ssh diretory
+$ cat ~/.ssh/id_dsa.pub >> ~/.ssh/authorized_keys
+
+Set the permissions for your user with the 'chmod' command
+$ chmod 0600 ~/.ssh/authorized_keys
+
+The new user is now able to SSH without needing to enter a password every time.
+Verify everything is set up correctly by using the hdoop user to SSH to localhost:
+$ ssh localhost
+
+The following words will come out.
+"Are you sure you want to continue connecting?" -> enter 'yes '
+
+
+'Missing privilege separation directory: /run/sshd' 오류가 발생하지 않도록 관련 디렉토리도 만들어줍니다.
+$ mkdir /var/run/sshd
+
+하둡 홈 디렉터리를 생성하고 하둡 바이너리를 다운로드해서 풀어준다.
+$ wget https://downloads.apache.org/hadoop/common/hadoop-2.10.1/hadoop-2.10.1.tar.gz
+$ tar xvzf hadoop-2.10.1.tar.gz
+
+
+bashrc를 열어서 환경변수들을 설정해준다.
+$ vi ~/.bashrc
+...
+export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+#Hadoop Related Options
+export HADOOP_HOME=/root/hadoop-2.10.1
+export HADOOP_CONFIG_HOME=$HADOOP_HOME/etc/hadoop
+export HADOOP_INSTALL=$HADOOP_HOME
+export HADOOP_MAPRED_HOME=$HADOOP_HOME
+export HADOOP_COMMON_HOME=$HADOOP_HOME
+export HADOOP_HDFS_HOME=$HADOOP_HOME
+export YARN_HOME=$HADOOP_HOME
+export HADOOP_COMMON_LIB_NATIVE_DIR=$HADOOP_HOME/lib/native
+export PATH=$PATH:$HADOOP_HOME/sbin:$HADOOP_HOME/bin
+export HADOOP_OPTS="-Djava.library.path=$HADOOP_HOME/lib/native"
+
+$ source ~/.bashrc
+
+각 데몬들이 홈으로 사용할 경로를 생성한다.
+$ mkdir /hadoop_home/temp
+$ mkdir /hadoop_home/namenode_home
+$ mkdir /hadoop_home/datanode_home
+
+이제 각 데몬들을 위한 하둡 설정파일들을 세팅한다.
+먼저 mapred-site.xml파일부터 생성하고 다음 파일들을 클러스터를 위해 수정한다.
+core-site.xml
+hdfs-site.xml
+mapred-site.xml
+yarn-site.xml
+hadoop-env.sh
+yarn-env.sh
+
+$ cd $HADOOP_CONFIG_HOME
+$ cp mapred-site.xml.template mapred-site.xml
+
+아래 내용을 추가한다.
+$ vi core-site.xml
+
+<configuration>
+    <property>
+        <name>hadoop.tmp.dir</name>
+        <value>/root/temp</value>
+    </property>
+
+    <property>
+        <name>fs.default.name</name>
+        <value>hdfs://master:9000</value>
+        <final>true</final>
+    </property>
+</configuration>
+
+$ vi hdfs-site.xml
+<configuration>
+	<property>
+		<name>dfs.replication</name>
+		<value>2</value>
+		<final>true</final>
+	</property>
+	<property>
+		<name>dfs.namenode.name.dir</name>
+		<value>/root/namenode_home</value>
+		<final>true</final>
+	</property>
+	<property>
+		<name>dfs.datanode.data.dir</name>
+		<value>/root/datanode_home</value>
+		<final>true</final>
+	</property>
+</configuration>
+
+$ vi mapred-site.xml
+<configuration>
+	<property>
+		<name>mapred.job.tracker</name>
+		<value>master:9001</value>
+	</property>
+</configuration>
+
+hadoop-env.sh파일 맨 마지막에 JAVA_HOME 환경변수를 지정해준다.
+$ vi hadoop-env.sh
+...
+export JAVA_HOME=/usr/lib/jvm/java-8-openjdk-amd64
+
+$ vi yarn-site.xml
+<configuration>
+        <property>
+                <name>yarn.nodemanager.aux-services</name>
+                <value>mapreduce_shuffle</value>
+        </property>
+</configuration>
+
+$ vi yarn-env.sh
+JAVA=$JAVA_HOME/bin/java
+JAVA_HEAP_MAX=-Xmx1000m
+
+$ vi workers
+master
+slave1
+slave2
+
+
+이제 네임노드를 포맷한다.
+$ cd
+$ hadoop namenode -format
+
+이 컨테이너를 각 데몬을 위해 구동시키기 위해 도커 이미지로 커밋해놓는다.
+터미널을 하나 더 열어 호스트 운영체제에서 도커 컨테이너를 커밋한다.
+$ docker commit hadoop-base ubuntu:hadoop
+
+
+혹시 껐다가 킬 경우 다시 컨테이너에 접속하려면 아래명령어 실행
+$ docker start ${컨테이너명}
+$ docker attach ${컨테이너명}
+이때 attach로 접속하면 종료할 때 반드시 아래의 명령을 실행해야 한다.
+Ctrl + p + q
+그냥 일반적 쉘 종료로 사용하는 exit 명령을 사용하면 실행중이던 컨테이너는 종료된다.
+
+이런게 귀찮다면  아래 명령으로 접속해야 한다. 
+exec로 접속하면 exit 명령어로 빠져나와도 도커 컨테이너가 중지되지
+않는다.
+$ docker exec -it ${컨테이너명} su -
+```
+
+* 하둡클러스터 구동하기
+```
+이제 만들어진 도커 이미지를 이용해서 마스터 노드 하나와 슬레이브 노드 두 개를 구동시켜본다.
+터미널을 3개 열어서 다음 명령을 각각 실행한다.
+
+이때 -p 9000:50070은 9000포트를 50070포트로 포트포워딩해준다는 의미이다.
+$ docker run -it -h master --name master -p 50070:50070 ubuntu:hadoop
+
+$ docker run -it -h slave1 --name slave1 --link master:master ubuntu:hadoop
+
+$ docker run -it -h slave2 --name slave2 --link master:master ubuntu:hadoop
+
+
+현재 3개의 컨테이너가 구동중이지만 아직 하둡 데몬들은 구동되지 않았다. 
+하둡 데몬을 구동하기 위해서 몇 가지 작업을 해야 한다. 
+우선 두 개의 슬레이브 노드의 가상 IP주소를 확인한다.
+호스트 운영체제에서 도커의 inspect 명령을 이용해서 가상 IP 정보를 확인할 수 있다.
+
+$ docker inspect master | grep IPAddress
+172.17.0.3
+$ docker inspect slave1 | grep IPAddress
+172.17.0.4
+$ docker inspect slave2 | grep IPAddress
+172.17.0.5
+
+만약 윈도우 호스트 운영체제라면
+$ docker inspect master | findstr "IPAddress"
+$ docker inspect slave1 | findstr "IPAddress"
+$ docker inspect slave2 | findstr "IPAddress"
+
+
+이제 master 컨테이너에서 호스트 파일을 수정해준다.
+
+$ vi /etc/hosts
+
+172.17.0.3 master
+172.17.0.4 slave1
+172.17.0.5 slave2
+
+(yy p는 커서가 있는 줄 복사한 뒤 밑에 붙여넣기)
+
+ssh재시작(root계정으로)
+모든 서버(master, slave1, slave2) root계정으로
+$ service ssh restart
+
+#ssh 서버 켜져있는지 확인
+$ netstat -plant | grep 22
+
+#ssh 접속 잘 되는지 확인하기
+$ ssh master
+$ ssh slave1
+$ ssh slave2
+
+slaves파일 수정하기. 이 파일에는 데이터 노드로 동작할 컨테이너의 목록이 적힌다.
+$ cd $HADOOP_CONFIG_HOME
+$ vi slaves
+slave1
+slave2
+master
+
+# 하둡 포맷 한 번 더해준다.
+$ hadoop namenode -format
+Y 입력
+
+이제 'start-all.sh'스크립트로 하둡 클러스터에 각 데몬들을 구동시켜본다.
+$ cd
+$ start-all.sh
+
+yes 연타
+
+#하둡 클러스터의 현 상황 확인하기
+$ hdfs dfsadmin -report
+'Live datanodes (3)'라는 출력에서 3개의 데이터노드가 구동되고 있음을 확인할 수 있다.
+
+# HDFS에 디렉터리 만들기
+$ hadoop fs -mkdir -p /user/dave
+$ hadoop fs -ls /
+
+# 어드민 웹페이지 들어가기
+localhost:50070
+
+
+#간단한 워드카운트 예제하기
+# 워드카운트위해서 클라이언트 컨테이너를 하나 더 띄워서 클러스터에 붙기
+# 호스트 터미널에서 실행
+$ docker run -it -h client --name client --link master:master ubuntu:hadoop
+
+#테스트를 위해 test 디렉터리를 hdfs에 생성하고, hadoop fs 명령을 이용해서 구축한 클러스터에
+LICENSE.txt 파일을 업로드한다.
+$ cd $HADOOP_HOME
+$ ls
+$ hadoop fs -mkdir -p /test
+$ hadoop fs -put LICENSE.txt /test
+$ hadoop fs -ls /test
+
+#하둡 패키지에 기본적으로 제공되는 jar파일을 이용해서 워드카운트 예제를 실행한다.
+$ hadoop jar share/hadoop/mapreduce/hadoop-mapreduce-examples-2.10.1.jar wordcount /test /test_out
+
+#워드카운트 결과 확인하기
+$ hadoop fs -ls /test_out
+$ hadoop fs -cat /test_out/*
+
+===* jps에서 실행중인 프로세스 죽이기
+kill -9 ${pid번호}
+```
